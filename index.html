@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Click Tracker</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: #000;
+            color: #fff;
+            font-family: monospace;
+            overflow: hidden;
+            cursor: crosshair;
+            user-select: none;
+        }
+        #canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+        }
+        #start-screen, #stats-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: #000;
+            z-index: 10;
+        }
+        #start-screen h1 {
+            font-size: 24px;
+            margin-bottom: 20px;
+            font-weight: normal;
+        }
+        #start-screen p {
+            font-size: 14px;
+            color: #666;
+        }
+        .start-target {
+            width: 40px;
+            height: 40px;
+            border: 2px solid #fff;
+            border-radius: 50%;
+            margin: 40px 0;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .start-target::after {
+            content: '';
+            width: 6px;
+            height: 6px;
+            background: #fff;
+            border-radius: 50%;
+        }
+        #stats-screen {
+            display: none;
+        }
+        #stats-screen h2 {
+            font-size: 20px;
+            margin-bottom: 30px;
+            font-weight: normal;
+        }
+        #stats-content {
+            margin-bottom: 40px;
+            text-align: center;
+            font-size: 14px;
+            line-height: 2;
+        }
+        .btn-row {
+            display: flex;
+            gap: 20px;
+        }
+        button {
+            background: transparent;
+            border: 1px solid #fff;
+            color: #fff;
+            padding: 12px 24px;
+            font-family: monospace;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.1s;
+        }
+        button:hover {
+            background: #fff;
+            color: #000;
+        }
+        #run-counter {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            font-size: 12px;
+            color: #444;
+            z-index: 5;
+        }
+        #hint {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 11px;
+            color: #333;
+            z-index: 5;
+        }
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+
+    <div id="start-screen">
+        <h1>CLICK TRACKER</h1>
+        <p>click center to begin</p>
+        <div class="start-target" id="start-btn"></div>
+        <p>right-click to end session</p>
+    </div>
+
+    <div id="stats-screen">
+        <h2>SESSION COMPLETE</h2>
+        <div id="stats-content"></div>
+        <div class="btn-row">
+            <button id="export-simple">EXPORT SIMPLE CSV</button>
+            <button id="export-detailed">EXPORT DETAILED CSV</button>
+        </div>
+        <br><br>
+        <button id="restart-btn">RESTART</button>
+    </div>
+
+    <div id="run-counter" class="hidden">RUN: 0</div>
+    <div id="hint" class="hidden">right-click to end</div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const startScreen = document.getElementById('start-screen');
+        const statsScreen = document.getElementById('stats-screen');
+        const statsContent = document.getElementById('stats-content');
+        const runCounter = document.getElementById('run-counter');
+        const hint = document.getElementById('hint');
+
+        let width, height;
+        let isRunning = false;
+        let currentTarget = null;
+        let runs = [];
+        let currentRun = null;
+        let trackingInterval = null;
+        let mouseX = 0, mouseY = 0;
+
+        function resize() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            if (currentTarget) draw();
+        }
+
+        window.addEventListener('resize', resize);
+        resize();
+
+        document.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+
+        document.getElementById('start-btn').addEventListener('click', startSession);
+
+        function startSession() {
+            startScreen.classList.add('hidden');
+            runCounter.classList.remove('hidden');
+            hint.classList.remove('hidden');
+            isRunning = true;
+            runs = [];
+            spawnTarget();
+        }
+
+        function spawnTarget() {
+            // Log-uniform distribution: 3px to 200px
+            const minRadius = 3;
+            const maxRadius = 200;
+            const r = Math.exp(Math.log(minRadius) + Math.random() * (Math.log(maxRadius) - Math.log(minRadius)));
+            // Arbitrary location anywhere on screen
+            const x = Math.random() * width;
+            const y = Math.random() * height;
+
+            currentTarget = { x, y, r };
+            currentRun = {
+                targetX: x,
+                targetY: y,
+                radius: r,
+                startTime: performance.now(),
+                path: []
+            };
+
+            // Start tracking at 30fps
+            trackingInterval = setInterval(() => {
+                if (currentRun) {
+                    currentRun.path.push({ x: mouseX, y: mouseY });
+                }
+            }, 1000 / 30);
+
+            updateRunCounter();
+            draw();
+        }
+
+        function updateRunCounter() {
+            runCounter.textContent = `RUN: ${runs.length + 1}`;
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, width, height);
+            if (currentTarget) {
+                ctx.beginPath();
+                ctx.arc(currentTarget.x, currentTarget.y, currentTarget.r, 0, Math.PI * 2);
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // Center dot
+                ctx.beginPath();
+                ctx.arc(currentTarget.x, currentTarget.y, 3, 0, Math.PI * 2);
+                ctx.fillStyle = '#fff';
+                ctx.fill();
+            }
+        }
+
+        canvas.addEventListener('click', (e) => {
+            if (!isRunning || !currentTarget) return;
+
+            const dx = e.clientX - currentTarget.x;
+            const dy = e.clientY - currentTarget.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist <= currentTarget.r) {
+                // Hit
+                clearInterval(trackingInterval);
+                currentRun.endTime = performance.now();
+                currentRun.dx = dx;
+                currentRun.dy = dy;
+                currentRun.duration = currentRun.endTime - currentRun.startTime;
+                runs.push(currentRun);
+                spawnTarget();
+            }
+        });
+
+        document.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            if (isRunning) {
+                endSession();
+            }
+        });
+
+        function endSession() {
+            isRunning = false;
+            clearInterval(trackingInterval);
+            currentTarget = null;
+            ctx.clearRect(0, 0, width, height);
+            runCounter.classList.add('hidden');
+            hint.classList.add('hidden');
+            showStats();
+        }
+
+        function showStats() {
+            if (runs.length === 0) {
+                statsContent.innerHTML = 'NO DATA COLLECTED';
+            } else {
+                const avgTime = runs.reduce((s, r) => s + r.duration, 0) / runs.length;
+                const avgRadius = runs.reduce((s, r) => s + r.radius, 0) / runs.length;
+                statsContent.innerHTML = `
+                    RUNS: ${runs.length}<br>
+                    AVG TIME: ${avgTime.toFixed(0)}ms<br>
+                    AVG RADIUS: ${avgRadius.toFixed(1)}px
+                `;
+            }
+            statsScreen.style.display = 'flex';
+        }
+
+        document.getElementById('export-simple').addEventListener('click', exportSimple);
+        document.getElementById('export-detailed').addEventListener('click', exportDetailed);
+        document.getElementById('restart-btn').addEventListener('click', () => {
+            statsScreen.style.display = 'none';
+            startScreen.classList.remove('hidden');
+        });
+
+        function exportSimple() {
+            let csv = 'dx,dy,r,T\n';
+            for (const run of runs) {
+                csv += `${run.dx.toFixed(2)},${run.dy.toFixed(2)},${run.radius.toFixed(2)},${run.duration.toFixed(2)}\n`;
+            }
+            download('click_data_simple.csv', csv);
+        }
+
+        function exportDetailed() {
+            // Find max path length
+            const maxLen = Math.max(...runs.map(r => r.path.length));
+
+            // Build header
+            let header = 'run_id,radius,target_x,target_y';
+            for (let i = 0; i < maxLen; i++) {
+                header += `,x${i},y${i}`;
+            }
+            header += '\n';
+
+            let csv = header;
+            runs.forEach((run, idx) => {
+                let row = `${idx + 1},${run.radius.toFixed(2)},${run.targetX.toFixed(2)},${run.targetY.toFixed(2)}`;
+                for (let i = 0; i < maxLen; i++) {
+                    if (i < run.path.length) {
+                        row += `,${run.path[i].x},${run.path[i].y}`;
+                    } else {
+                        row += ',,';
+                    }
+                }
+                csv += row + '\n';
+            });
+            download('click_data_detailed.csv', csv);
+        }
+
+        function download(filename, content) {
+            const blob = new Blob([content], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+    </script>
+</body>
+</html>
