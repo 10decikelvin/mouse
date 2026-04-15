@@ -201,6 +201,8 @@
                 targetX: x,
                 targetY: y,
                 radius: r,
+                startX: mouseX,
+                startY: mouseY,
                 startTime: performance.now(),
                 path: []
             };
@@ -298,7 +300,9 @@
         function exportSimple() {
             let csv = 'dx,dy,r,T\n';
             for (const run of runs) {
-                csv += `${run.dx.toFixed(2)},${run.dy.toFixed(2)},${run.radius.toFixed(2)},${run.duration.toFixed(2)}\n`;
+                const dx = run.startX - run.targetX;
+                const dy = run.startY - run.targetY;
+                csv += `${dx.toFixed(2)},${dy.toFixed(2)},${run.radius.toFixed(2)},${run.duration.toFixed(2)}\n`;
             }
             download('click_data_simple.csv', csv);
         }
